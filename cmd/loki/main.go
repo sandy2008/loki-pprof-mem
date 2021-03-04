@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"runtime"
+	"time"
 
 	"github.com/cortexproject/cortex/pkg/util/flagext"
 	"github.com/go-kit/kit/log/level"
@@ -26,6 +28,16 @@ import (
 	_ "net/http/pprof"
 )
 
+func PrintMemUsage() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
+	fmt.Printf("Alloc = %v MiB", bToMb(m.Alloc))
+	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
+	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
+	fmt.Printf("\tNumGC = %v\n", m.NumGC)
+}
+
 func init() {
 	prometheus.MustRegister(version.NewCollector("loki"))
 }
@@ -38,6 +50,7 @@ type Config struct {
 	logConfig       bool
 	configFile      string
 	port            string
+	memStats        bool
 	configExpandEnv bool
 }
 
@@ -49,6 +62,7 @@ func (c *Config) RegisterFlags(f *flag.FlagSet) {
 		"level with the order reversed, reversing the order makes viewing the entries easier in Grafana.")
 	f.StringVar(&c.configFile, "config.file", "", "yaml file to load")
 	f.StringVar(&c.port, "port", "8080", "port")
+	f.BoolVar(&c.memStats, "mem-stats", false, "Enable Mem Stats or not")
 	f.BoolVar(&c.configExpandEnv, "config.expand-env", false, "Expands ${var} in config according to the values of the environment variables.")
 	c.Config.RegisterFlags(f)
 }
@@ -74,13 +88,6 @@ func main() {
 		http.ListenAndServe(s, nil)
 	}()
 
-	// go func() {
-	// 	for {
-	// 		time.Sleep(time.Second * 5)
-	// 		PrintMemUsage()
-	// 	}
-	// }()
-
 	if err := cfg.Parse(&config); err != nil {
 		fmt.Fprintf(os.Stderr, "failed parsing config: %v\n", err)
 		os.Exit(1)
@@ -89,6 +96,16 @@ func main() {
 		fmt.Println(version.Print("loki"))
 		os.Exit(0)
 	}
+
+	// Enable mem stats config or not
+	go func() {
+		if config.memStats {
+			for {
+				time.Sleep(time.Second * 5)
+				PrintMemUsage()
+			}
+		}
+	}()
 
 	// This global is set to the config passed into the last call to `NewOverrides`. If we don't
 	// call it atleast once, the defaults are set to an empty struct.
